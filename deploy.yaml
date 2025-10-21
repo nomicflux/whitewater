@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: whitewater
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: whitewater
+  template:
+    metadata:
+      labels:
+        app: whitewater
+    spec:
+      containers:
+      - name: whitewater
+        image: whitewater:1
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8090
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: whitewater-service
+  namespace: default
+spec:
+  selector:
+    app: whitewater
+  ports:
+    - port: 8090
+      targetPort: 8090
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: whitewater-ingress
+  namespace: default
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: whitewater.local
+      http:
+        paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: whitewater-service
+              port:
+                number: 8090
