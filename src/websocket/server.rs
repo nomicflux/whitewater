@@ -1,6 +1,6 @@
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::IntoResponse;
-use futures_util::{StreamExt, SinkExt};
+use futures_util::{SinkExt, StreamExt};
 
 use super::super::handler::Handler;
 use super::shared::WSMessage;

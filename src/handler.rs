@@ -1,9 +1,9 @@
-use tokio::sync::mpsc::{Receiver, Sender, channel};
-use tokio::sync::Mutex;
-use tokio::time::{Duration, timeout};
 use std::sync::Arc;
+use tokio::sync::Mutex;
+use tokio::sync::mpsc::{Receiver, Sender, channel};
+use tokio::time::{Duration, timeout};
 
-use super::app_state::{AppState};
+use super::app_state::AppState;
 use super::websocket::shared::WSMessage;
 
 #[derive(Clone)]
@@ -20,7 +20,11 @@ impl Handler {
         let (response_tx, response_rx) = channel::<WSMessage>(100);
         Self::setup_process_loop(app_state, heartbeat_tx.clone(), msg_rx);
         Self::setup_missed_heartbeat_loop(app_state, response_tx.clone(), heartbeat_rx);
-        Self { heartbeat_tx, msg_tx, response_rx: Arc::new(Mutex::new(response_rx)) }
+        Self {
+            heartbeat_tx,
+            msg_tx,
+            response_rx: Arc::new(Mutex::new(response_rx)),
+        }
     }
 
     fn setup_process_loop(
@@ -31,7 +35,7 @@ impl Handler {
         let app_state = app_state.clone();
         tokio::spawn(async move {
             while let Some(msg) = msg_rx.recv().await {
-                Self::process_msg(&app_state, heartbeat_tx.clone(), msg);
+                let _ = Self::process_msg(&app_state, heartbeat_tx.clone(), msg).await;
             }
         });
     }
@@ -56,10 +60,14 @@ impl Handler {
         });
     }
 
-    async fn process_msg(_app_state: &AppState, heartbeat_tx: Sender<()>, msg: WSMessage) {
+    async fn process_msg(
+        _app_state: &AppState,
+        heartbeat_tx: Sender<()>,
+        msg: WSMessage,
+    ) -> anyhow::Result<()> {
         match msg {
-            WSMessage::Heartbeat(_peer) => heartbeat_tx.send(()).await,
+            WSMessage::Heartbeat(_peer) => heartbeat_tx.send(()).await.map_err(|e| e.into()),
             _ => Ok(()),
-        };
+        }
     }
 }

@@ -1,9 +1,9 @@
 mod app_state;
 mod handler;
-mod user;
 mod log;
-mod websocket;
 mod server_state;
+mod user;
+mod websocket;
 
 use axum::{
     Router,
@@ -12,16 +12,16 @@ use axum::{
     response::IntoResponse,
     routing::{get, post},
 };
-use hickory_resolver::{TokioResolver};
+use hickory_resolver::TokioResolver;
 use regex::Regex;
-use serde::{Deserialize,Serialize};
+use serde::{Deserialize, Serialize};
 use std::env;
 use std::net::SocketAddr;
 
-use user::User;
+use app_state::{AppState, Peer, StatusInfo};
 use handler::Handler;
-use app_state::{Peer, StatusInfo, AppState};
 use log::{Command, Log, ToCommand, add_to_log};
+use user::User;
 use websocket::client::spawn_client;
 use websocket::server::ws_handler;
 
@@ -116,7 +116,9 @@ async fn discover_peers() -> anyhow::Result<Vec<Peer>> {
 
     let peers: Vec<Peer> = records
         .iter()
-        .map(|srv| Peer { ip: format!("{}:{}", srv.target().to_utf8(), srv.port()) })
+        .map(|srv| Peer {
+            ip: format!("{}:{}", srv.target().to_utf8(), srv.port()),
+        })
         .collect();
     println!("Found peers: {:?}", peers);
 
@@ -158,11 +160,17 @@ async fn post_update_peers(State(state): State<AppState>) -> Json<PeerResult> {
     match res {
         Ok(_) => {
             let peers = state.peers.lock().await.clone();
-            Json(PeerResult { peers: Some(peers), error: None })
+            Json(PeerResult {
+                peers: Some(peers),
+                error: None,
+            })
         }
         Err(e) => {
             let e_msg = e.to_string();
-            Json(PeerResult { peers: None, error: Some(e_msg) })
+            Json(PeerResult {
+                peers: None,
+                error: Some(e_msg),
+            })
         }
     }
 }
@@ -171,9 +179,7 @@ fn retrieve_status_info() -> anyhow::Result<StatusInfo> {
     let name = env::var("POD_NAME")?;
     let ip = env::var("POD_IP")?;
     println!("Name: {}, IP: {}", name, ip);
-    Ok(StatusInfo {
-        name, ip
-    })
+    Ok(StatusInfo { name, ip })
 }
 
 #[tokio::main]

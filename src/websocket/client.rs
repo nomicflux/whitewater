@@ -1,12 +1,12 @@
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 
+use tokio::net::TcpStream;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::task::JoinHandle;
-use tokio::time::{sleep, Duration};
-use tokio::net::{TcpStream};
-use tokio_tungstenite::{connect_async, WebSocketStream, MaybeTlsStream};
-use tokio_tungstenite::tungstenite::{Message};
+use tokio::time::{Duration, sleep};
+use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 
 use serde_json;
 

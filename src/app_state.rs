@@ -1,12 +1,12 @@
+use super::log::Log;
+use super::server_state::ServerState;
+use super::user::User;
+use super::websocket::shared::WSMessage;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tokio::sync::mpsc::{Sender};
-use super::user::User;
-use super::server_state::ServerState;
-use super::log::Log;
-use super::websocket::shared::WSMessage;
+use tokio::sync::mpsc::Sender;
 
 #[derive(Serialize, Clone, Debug)]
 pub struct Peer {
@@ -65,7 +65,10 @@ impl AppState {
         response_tx.send(WSMessage::Heartbeat("".to_string()));
     }
 
-    pub async fn handle_missed_heartbeat(&self, response_tx: Sender<WSMessage>) -> anyhow::Result<()> {
+    pub async fn handle_missed_heartbeat(
+        &self,
+        response_tx: Sender<WSMessage>,
+    ) -> anyhow::Result<()> {
         let state = self.current_state.lock().await;
         match *state {
             ServerState::Follower => Ok(self.initiate_election(response_tx).await),
