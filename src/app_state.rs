@@ -62,7 +62,7 @@ impl AppState {
     async fn initiate_election(&self, response_tx: Sender<WSMessage>) {
         let mut state = self.current_state.lock().await;
         *state = ServerState::Candidate;
-        response_tx.send(WSMessage::Heartbeat("".to_string()));
+        let _ = response_tx.send(WSMessage::Heartbeat("".to_string())).await;
     }
 
     pub async fn handle_missed_heartbeat(

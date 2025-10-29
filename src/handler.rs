@@ -8,7 +8,6 @@ use super::websocket::shared::WSMessage;
 
 #[derive(Clone)]
 pub struct Handler {
-    pub heartbeat_tx: Sender<()>,
     pub msg_tx: Sender<WSMessage>,
     pub response_rx: Arc<Mutex<Receiver<WSMessage>>>,
 }
@@ -21,7 +20,6 @@ impl Handler {
         Self::setup_process_loop(app_state, heartbeat_tx.clone(), msg_rx);
         Self::setup_missed_heartbeat_loop(app_state, response_tx.clone(), heartbeat_rx);
         Self {
-            heartbeat_tx,
             msg_tx,
             response_rx: Arc::new(Mutex::new(response_rx)),
         }
@@ -51,10 +49,10 @@ impl Handler {
                 let timeout_ms = rand::random_range(100..=300);
                 let timeout_duration = Duration::from_millis(timeout_ms);
                 let app_state = app_state.clone();
-                match timeout(timeout_duration, heartbeat_rx.recv()).await {
+                let _ = match timeout(timeout_duration, heartbeat_rx.recv()).await {
                     Ok(Some(_)) => continue,
                     Ok(None) => break,
-                    Err(_) => app_state.handle_missed_heartbeat(response_tx.clone()),
+                    Err(_) => app_state.handle_missed_heartbeat(response_tx.clone()).await,
                 };
             }
         });

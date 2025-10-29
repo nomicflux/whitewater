@@ -55,7 +55,7 @@ async fn create_user(
     let term = state.current_term.lock().await;
     let mut users = state.users.lock().await;
     users.insert(id, user.clone());
-    add_to_log(state.log, *term, &req);
+    let _ = add_to_log(state.log, *term, &req).await;
     (StatusCode::CREATED, Json(user))
 }
 
