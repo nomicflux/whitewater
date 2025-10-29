@@ -1,4 +1,5 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 pub enum Command {
     AddUser { name: String, email: String },
@@ -40,9 +41,10 @@ impl Log {
     }
 }
 
-pub fn add_to_log<T>(log: Arc<Mutex<Log>>, entry: &T)
+pub async fn add_to_log<T>(log: Arc<Mutex<Log>>, term: u32, entry: &T)
 where
     T: ToCommand,
 {
-    log.lock().unwrap().update_log(entry.to_command());
+    let mut log = log.lock().await;
+    log.update_log(term, entry.to_command());
 }

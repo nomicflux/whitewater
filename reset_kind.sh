@@ -2,7 +2,7 @@
 
 kind delete clusters whitewater-cluster
 kind create cluster --config kind-cluster.yaml
-kind load docker-image whitewater:1 --name whitewater-cluster
+kind load docker-image whitewater:2 --name whitewater-cluster
 
 kubectl apply -f ingress-controller.yaml
 #kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.1/deploy/static/provider/kind/deploy.yaml
