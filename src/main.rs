@@ -21,8 +21,7 @@ use app_state::{
     shared::{Peer, StatusInfo},
 };
 use handler::Handler;
-use websocket::client::connect_to_peer;
-use websocket::server::ws_handler;
+use websocket::connection::Connection;
 
 async fn create_user(
     State(state): State<AppState>,
@@ -70,9 +69,18 @@ async fn discover_peers(app_state: AppState, handler: Handler) -> anyhow::Result
         .collect();
     println!("Found peers: {:?}", peers);
 
+    let status_info = app_state
+        .state_machine
+        .lock()
+        .await
+        .status_info
+        .to_peer()
+        .clone();
     for peer in peers {
-        app_state.add_peer(peer.clone()).await;
-        connect_to_peer(peer.ip, handler.clone()).await;
+        if peer.ip != status_info.ip {
+            app_state.add_peer(peer.clone()).await;
+            Connection::connect(peer.ip, handler.clone()).await;
+        }
     }
 
     Ok(())
@@ -104,7 +112,7 @@ async fn main() -> anyhow::Result<()> {
     let handler_c = handler.clone();
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(5)).await;
-        let _ = discover_peers(state_c, handler_c);
+        let _ = discover_peers(state_c, handler_c).await;
     });
 
     let app = Router::new()
@@ -112,7 +120,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/users", post(create_user))
         .route("/users", get(list_users))
         .route("/users/:id", get(get_user))
-        .route("/ws", get(|ws: WebSocketUpgrade| ws_handler(ws, handler)))
+        .route(
+            "/ws",
+            get(|ws: WebSocketUpgrade| Connection::accept(ws, handler)),
+        )
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8090));
