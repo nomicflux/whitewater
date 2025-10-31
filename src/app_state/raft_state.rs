@@ -13,8 +13,6 @@ pub struct RaftState {
     voted_for: Option<Peer>,
     commit_index: u32,
     last_applied: u32,
-    next_index: HashMap<Peer, u32>,
-    match_index: HashMap<Peer, u32>,
     current_term: u32,
     current_state: ServerState,
 }
@@ -26,8 +24,6 @@ impl RaftState {
             voted_for: None,
             commit_index: 0,
             last_applied: 0,
-            next_index: HashMap::new(),
-            match_index: HashMap::new(),
             current_term: 0,
             current_state: ServerState::Follower,
         }
@@ -69,7 +65,7 @@ impl RaftState {
         response_tx: broadcast::Sender<WSMessage>,
         state_machine: &StateMachine,
     ) {
-        self.current_state = ServerState::Candidate;
+        self.current_state = ServerState::candidate(state_machine.status_info.clone());
         self.inc_term();
         let request_vote = self.request_vote(state_machine);
         let _ = response_tx.send(request_vote);
@@ -78,17 +74,10 @@ impl RaftState {
     }
 
     fn convert_to_leader(&mut self, new_term: u32, state_machine: &StateMachine) {
-        self.current_state = ServerState::Leader;
-        self.current_term = new_term;
-        let log = self.log.clone();
+        let latest_applied = self.log.latest_applied.clone();
         let peers = state_machine.peers.clone();
-        let peer_map: HashMap<Peer, u32> = peers
-            .iter()
-            .map(|p| (p.clone(), log.latest_applied + 1))
-            .collect();
-        self.next_index = peer_map;
-        let match_map: HashMap<Peer, u32> = peers.iter().map(|p| (p.clone(), 0)).collect();
-        self.match_index = match_map;
+        self.current_state = ServerState::leader(peers, latest_applied);
+        self.current_term = new_term;
     }
 
     fn convert_to_follower(&mut self, new_term: u32) {
@@ -103,8 +92,8 @@ impl RaftState {
     ) {
         match self.current_state {
             ServerState::Follower => self.initiate_election(response_tx, state_machine).await,
-            ServerState::Candidate => todo!(),
-            ServerState::Leader => {}
+            ServerState::Candidate { .. } => todo!(),
+            ServerState::Leader { .. } => {}
         }
     }
 
@@ -115,8 +104,8 @@ impl RaftState {
     ) {
         match self.current_state {
             ServerState::Follower => todo!(),
-            ServerState::Candidate => todo!(),
-            ServerState::Leader => todo!(),
+            ServerState::Candidate { .. } => todo!(),
+            ServerState::Leader { .. } => todo!(),
         }
     }
 }
