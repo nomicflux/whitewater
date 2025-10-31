@@ -1,79 +1,59 @@
-use super::log::Log;
-use super::server_state::ServerState;
-use super::user::User;
-use super::websocket::shared::WSMessage;
-use serde::Serialize;
-use std::collections::HashMap;
+pub mod log;
+mod raft_state;
+pub mod shared;
+pub mod state_machine;
+
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tokio::sync::mpsc::Sender;
 
-#[derive(Serialize, Clone, Debug)]
-pub struct Peer {
-    pub ip: String,
-}
-
-#[derive(Serialize, Clone)]
-pub struct StatusInfo {
-    pub name: String,
-    pub ip: String,
-}
-
-impl Default for StatusInfo {
-    fn default() -> Self {
-        Self {
-            name: String::from(""),
-            ip: String::from(""),
-        }
-    }
-}
+use axum::{extract::Json, http::StatusCode};
+use raft_state::RaftState;
+use shared::{Peer, StatusInfo};
+use state_machine::{
+    StateMachine,
+    user::{CreateUserRequest, User},
+};
 
 #[derive(Clone)]
 pub struct AppState {
-    pub status_info: StatusInfo,
-    pub peers: Arc<Mutex<Vec<Peer>>>,
-    pub users: Arc<Mutex<HashMap<u32, User>>>,
-    pub next_id: Arc<Mutex<u32>>,
-    pub log: Arc<Mutex<Log>>,
-    pub current_term: Arc<Mutex<u32>>,
-    pub current_state: Arc<Mutex<ServerState>>,
+    pub raft_state: Arc<Mutex<RaftState>>,
+    pub state_machine: Arc<Mutex<StateMachine>>,
 }
 
 impl AppState {
-    pub fn new(status_info: anyhow::Result<StatusInfo>) -> Self {
+    pub fn new(status_info: StatusInfo) -> Self {
         AppState {
-            status_info: match status_info {
-                Ok(status) => status,
-                Err(_) => StatusInfo::default(),
-            },
-            peers: Arc::new(Mutex::new(Vec::new())),
-            users: Arc::new(Mutex::new(HashMap::new())),
-            next_id: Arc::new(Mutex::new(1)),
-            log: Arc::new(Mutex::new(Log::new())),
-            current_term: Arc::new(Mutex::new(0)),
-            current_state: Arc::new(Mutex::new(ServerState::Follower)),
+            raft_state: Arc::new(Mutex::new(RaftState::new())),
+            state_machine: Arc::new(Mutex::new(StateMachine::new(status_info.clone()))),
         }
     }
 
-    async fn is_majority(&self, num: usize) -> bool {
-        (2 * num) > self.peers.lock().await.len()
+    async fn modify_state_machine<A>(&self, func: impl FnOnce(&mut StateMachine) -> A) -> A {
+        let mut state_machine = self.state_machine.lock().await;
+        func(&mut state_machine)
     }
 
-    async fn initiate_election(&self, response_tx: Sender<WSMessage>) {
-        let mut state = self.current_state.lock().await;
-        *state = ServerState::Candidate;
-        let _ = response_tx.send(WSMessage::Heartbeat("".to_string())).await;
+    pub async fn add_peer(&self, peer: Peer) {
+        self.modify_state_machine(|state| state.add_peer(peer))
+            .await;
     }
 
-    pub async fn handle_missed_heartbeat(
-        &self,
-        response_tx: Sender<WSMessage>,
-    ) -> anyhow::Result<()> {
-        let state = self.current_state.lock().await;
-        match *state {
-            ServerState::Follower => Ok(self.initiate_election(response_tx).await),
-            ServerState::Candidate => todo!(),
-            ServerState::Leader => Ok(()),
+    pub async fn create_user(&self, req: CreateUserRequest) -> (StatusCode, Json<Option<User>>) {
+        let user = self
+            .modify_state_machine(|state| state.create_user(req))
+            .await;
+        (StatusCode::CREATED, Json(Some(user.clone())))
+    }
+
+    pub async fn get_user(&self, id: u32) -> (StatusCode, Json<Option<User>>) {
+        match self.state_machine.lock().await.get_user(id) {
+            Some(user) => (StatusCode::OK, Json(Some(user.clone()))),
+            None => (StatusCode::NOT_FOUND, Json(None::<User>)),
         }
+    }
+
+    pub async fn list_users(&self) -> (StatusCode, Json<Option<Vec<User>>>) {
+        let users = self.state_machine.lock().await.list_users();
+        (StatusCode::OK, Json(Some(users)))
     }
 }

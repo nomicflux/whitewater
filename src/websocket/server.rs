@@ -10,15 +10,7 @@ pub async fn ws_handler(ws: WebSocketUpgrade, handler: Handler) -> impl IntoResp
     ws.on_upgrade(move |socket| handle_socket(socket, handler))
 }
 
-async fn handle_socket(mut socket: WebSocket, handler: Handler) {
-    let msg = serde_json::to_string(&WSMessage::Heartbeat("Hi".to_string()));
-    if let Ok(m) = msg
-        && let Err(e) = socket.send(m.into()).await
-    {
-        eprintln!("Could not complete handshake: {e}");
-        return;
-    }
-
+async fn handle_socket(socket: WebSocket, handler: Handler) {
     let (mut msg_tx, mut msg_rx) = socket.split();
 
     tokio::spawn(async move {

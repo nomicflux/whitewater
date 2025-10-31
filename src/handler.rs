@@ -52,20 +52,39 @@ impl Handler {
                 let _ = match timeout(timeout_duration, heartbeat_rx.recv()).await {
                     Ok(Some(_)) => continue,
                     Ok(None) => break,
-                    Err(_) => app_state.handle_missed_heartbeat(response_tx.clone()).await,
+                    Err(_) => {
+                        let state_machine = app_state.state_machine.lock().await;
+                        app_state
+                            .raft_state
+                            .lock()
+                            .await
+                            .handle_missed_heartbeat(response_tx.clone(), &state_machine)
+                            .await;
+                    }
                 };
             }
         });
     }
 
-    async fn process_msg(
-        _app_state: &AppState,
-        heartbeat_tx: Sender<()>,
-        msg: WSMessage,
-    ) -> anyhow::Result<()> {
+    async fn process_msg(_app_state: &AppState, heartbeat_tx: Sender<()>, msg: WSMessage) {
         match msg {
-            WSMessage::Heartbeat(_peer) => heartbeat_tx.send(()).await.map_err(|e| e.into()),
-            _ => Ok(()),
+            WSMessage::AppendEntries {
+                term,
+                leader_id,
+                prev_log_index,
+                prev_log_term,
+                entries,
+            } => {
+                heartbeat_tx.send(()).await;
+            }
+            WSMessage::AppendEntriesResponse { term, success } => {}
+            WSMessage::RequestVote {
+                term,
+                candidate_id,
+                last_log_index,
+                last_log_term,
+            } => {}
+            WSMessage::RequestVoteResponse { term, vote_granted } => {}
         }
     }
 }

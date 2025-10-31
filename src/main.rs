@@ -1,94 +1,40 @@
 mod app_state;
 mod handler;
-mod log;
-mod server_state;
-mod user;
 mod websocket;
 
 use axum::{
     Router,
     extract::{Json, Path, State, WebSocketUpgrade},
-    http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
 };
 use hickory_resolver::TokioResolver;
 use regex::Regex;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::env;
 use std::net::SocketAddr;
 
-use app_state::{AppState, Peer, StatusInfo};
+use app_state::state_machine::user::CreateUserRequest;
+use app_state::{
+    AppState,
+    shared::{Peer, StatusInfo},
+};
 use handler::Handler;
-use log::{Command, Log, ToCommand, add_to_log};
-use user::User;
-use websocket::client::spawn_client;
 use websocket::server::ws_handler;
-
-#[derive(Deserialize)]
-struct CreateUserRequest {
-    name: String,
-    email: String,
-}
-
-impl ToCommand for CreateUserRequest {
-    fn to_command(&self) -> Command {
-        Command::AddUser {
-            name: self.name.clone(),
-            email: self.email.clone(),
-        }
-    }
-}
 
 async fn create_user(
     State(state): State<AppState>,
     Json(req): Json<CreateUserRequest>,
 ) -> impl IntoResponse {
-    let mut next_id = state.next_id.lock().await;
-    let id = *next_id;
-    *next_id += 1;
-    let user = User {
-        id,
-        name: req.name.clone(),
-        email: req.email.clone(),
-    };
-    let term = state.current_term.lock().await;
-    let mut users = state.users.lock().await;
-    users.insert(id, user.clone());
-    let _ = add_to_log(state.log, *term, &req).await;
-    (StatusCode::CREATED, Json(user))
+    state.create_user(req).await
 }
 
-async fn get_user(
-    State(state): State<AppState>,
-    Path(id): Path<u32>,
-) -> Result<Json<User>, StatusCode> {
-    state
-        .users
-        .lock()
-        .await
-        .get(&id)
-        .cloned()
-        .map(Json)
-        .ok_or(StatusCode::NOT_FOUND)
+async fn get_user(State(state): State<AppState>, Path(id): Path<u32>) -> impl IntoResponse {
+    state.get_user(id).await
 }
 
-async fn list_users(State(state): State<AppState>) -> Json<Vec<User>> {
-    let users: Vec<User> = state.users.lock().await.values().cloned().collect();
-
-    Json(users)
-}
-
-async fn get_peers(State(state): State<AppState>) -> Json<Vec<Peer>> {
-    let peers: Vec<Peer> = state.peers.lock().await.clone();
-
-    Json(peers)
-}
-
-async fn get_status_info(State(state): State<AppState>) -> Json<StatusInfo> {
-    let status_info = state.status_info.clone();
-
-    Json(status_info)
+async fn list_users(State(state): State<AppState>) -> impl IntoResponse {
+    state.list_users().await
 }
 
 fn peer_to_ws_addr(peer: Peer) -> String {
@@ -97,7 +43,7 @@ fn peer_to_ws_addr(peer: Peer) -> String {
     format!("ws://{}/ws", ip)
 }
 
-async fn discover_peers() -> anyhow::Result<Vec<Peer>> {
+async fn discover_peers(app_state: AppState) -> anyhow::Result<()> {
     let service = env::var("SERVICE_NAME")?;
     let namespace = env::var("NAMESPACE")?;
     let port_name = env::var("SERVICE_PORT_NAME")?;
@@ -122,28 +68,10 @@ async fn discover_peers() -> anyhow::Result<Vec<Peer>> {
         .collect();
     println!("Found peers: {:?}", peers);
 
-    let mut confirmed_peers = Vec::<Peer>::new();
     for peer in peers {
-        let peer_c = peer.clone();
-        match spawn_client(peer_to_ws_addr(peer)).await {
-            Ok(_) => {
-                println!("Connected to peer {:?}", peer_c.clone());
-                confirmed_peers.push(peer_c);
-            }
-            Err(e) => {
-                eprintln!("Error connecting to peer {peer_c:?}: {e}");
-            }
-        }
+        app_state.add_peer(peer.clone());
     }
 
-    Ok(confirmed_peers)
-}
-
-async fn update_peers(state: AppState) -> anyhow::Result<()> {
-    let peers = discover_peers().await?;
-    let mut curr = state.peers.lock().await;
-    curr.clear();
-    curr.extend(peers);
     Ok(())
 }
 
@@ -151,28 +79,6 @@ async fn update_peers(state: AppState) -> anyhow::Result<()> {
 struct PeerResult {
     peers: Option<Vec<Peer>>,
     error: Option<String>,
-}
-
-async fn post_update_peers(State(state): State<AppState>) -> Json<PeerResult> {
-    let sc = state.clone();
-    let res = update_peers(sc).await;
-
-    match res {
-        Ok(_) => {
-            let peers = state.peers.lock().await.clone();
-            Json(PeerResult {
-                peers: Some(peers),
-                error: None,
-            })
-        }
-        Err(e) => {
-            let e_msg = e.to_string();
-            Json(PeerResult {
-                peers: None,
-                error: Some(e_msg),
-            })
-        }
-    }
 }
 
 fn retrieve_status_info() -> anyhow::Result<StatusInfo> {
@@ -184,7 +90,8 @@ fn retrieve_status_info() -> anyhow::Result<StatusInfo> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let state = AppState::new(retrieve_status_info());
+    let status_info = retrieve_status_info().unwrap_or_default();
+    let state = AppState::new(status_info.clone());
 
     println!("App state initialized");
 
@@ -195,9 +102,6 @@ async fn main() -> anyhow::Result<()> {
         .route("/users", post(create_user))
         .route("/users", get(list_users))
         .route("/users/:id", get(get_user))
-        .route("/peers", get(get_peers))
-        .route("/peers/update", post(post_update_peers))
-        .route("/status", get(get_status_info))
         .route("/ws", get(|ws: WebSocketUpgrade| ws_handler(ws, handler)))
         .with_state(state);
 

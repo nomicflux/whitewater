@@ -1,6 +1,8 @@
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum Command {
     AddUser { name: String, email: String },
 }
@@ -9,16 +11,18 @@ pub trait ToCommand {
     fn to_command(&self) -> Command;
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct LogEntry {
-    index: u32,
-    term: u32,
-    command: Command,
+    pub index: u32,
+    pub term: u32,
+    pub command: Command,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Log {
-    latest_seen: u32,
-    latest_applied: u32,
-    entries: Vec<LogEntry>,
+    pub latest_seen: u32,
+    pub latest_applied: u32,
+    pub entries: Vec<LogEntry>,
 }
 
 impl Log {
