@@ -13,6 +13,7 @@ use regex::Regex;
 use serde::Serialize;
 use std::env;
 use std::net::SocketAddr;
+use tokio::time::Duration;
 
 use app_state::state_machine::user::CreateUserRequest;
 use app_state::{
@@ -20,6 +21,7 @@ use app_state::{
     shared::{Peer, StatusInfo},
 };
 use handler::Handler;
+use websocket::client::connect_to_peer;
 use websocket::server::ws_handler;
 
 async fn create_user(
@@ -43,7 +45,7 @@ fn peer_to_ws_addr(peer: Peer) -> String {
     format!("ws://{}/ws", ip)
 }
 
-async fn discover_peers(app_state: AppState) -> anyhow::Result<()> {
+async fn discover_peers(app_state: AppState, handler: Handler) -> anyhow::Result<()> {
     let service = env::var("SERVICE_NAME")?;
     let namespace = env::var("NAMESPACE")?;
     let port_name = env::var("SERVICE_PORT_NAME")?;
@@ -69,7 +71,8 @@ async fn discover_peers(app_state: AppState) -> anyhow::Result<()> {
     println!("Found peers: {:?}", peers);
 
     for peer in peers {
-        app_state.add_peer(peer.clone());
+        app_state.add_peer(peer.clone()).await;
+        connect_to_peer(peer.ip, handler.clone()).await;
     }
 
     Ok(())
@@ -96,6 +99,13 @@ async fn main() -> anyhow::Result<()> {
     println!("App state initialized");
 
     let handler = Handler::spawn(&state);
+
+    let state_c = state.clone();
+    let handler_c = handler.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        let _ = discover_peers(state_c, handler_c);
+    });
 
     let app = Router::new()
         .without_v07_checks()
